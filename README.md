@@ -14,7 +14,7 @@ When using this plugin, Radicale will:
 
 * auto-detect attendees in events
 * automatically accept the "invitations" from users on the same server
-* automatically add the event to the attendees' default calendar
+* automatically add/remove the event to the attendees' default calendar
 
 This should work as expected, at least with the already tested clients:
 
@@ -38,12 +38,15 @@ This plugin assumes only authenticated users are allowed to connect to Radicale,
 so make sure to correctly set the Radicale `auth` backend accordingly.
 Please refer to the [Radicale docs](http://radicale.org/configuration/#auth) for more information.
 
+__Important:__ Usernames need to be e-mail addresses for this plugin to work!
+These e-mail addresses have to be used while inviting other family members.
+
 In order to call the plugin, you need to set the storage type to
 `radicale_storage_family_scheduler` in the [configuration](http://radicale.org/configuration/).
 
 In addition to this Radicale config, you need to symlink to the default calendar
 of each user from a collection called `.Radicale.private`. This calendar will
-be used by the plugin for adding events automatically.
+be used by the plugin for adding/removing events automatically.
 
 ## Licence
 
