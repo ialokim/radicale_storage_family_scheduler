@@ -56,12 +56,22 @@ class Collection(BaseCollection):
         path = path_to_filesystem(self._filesystem_path, href)
         return os.path.islink(path)
     
+    def _is_update(self, href):
+        path = path_to_filesystem(self._filesystem_path, href)
+        return os.path.isfile(path)
+    
     def _check_for_calendar_object(self, vobject_item):
         is_calendar = vobject_item.name == "VCALENDAR"
         if not is_calendar:
             self.logger.debug("vObject is not vCalendar, continuing with standard storage.")
             self._plugin_finished()
         return is_calendar
+        
+    def _get_attendees(self, vobject_item):
+        try:
+            return vobject_item.vevent.attendee_list #TODO: likely to get error with whole calendars!
+        except AttributeError:
+            return None
 
     def _get_real_collection(self, href):
         path = path_to_filesystem(self._filesystem_path, href)
@@ -115,9 +125,8 @@ class Collection(BaseCollection):
                 self.logger.error("Plugin encountered an error while trying to delete attendees and/or symbolic links for family members.")
                 self.logger.error(e)
 
-        try:
-            attendees = vobject_item.vevent.attendee_list #TODO: likely to get error with whole calendars!
-        except AttributeError:
+        attendees = self._get_attendees(vobject_item)
+        if not attendees:
             self.logger.debug("No attendees found in %s, continuing with standard storage.", href)
             self._plugin_finished()
             super().delete(href)
@@ -169,9 +178,23 @@ class Collection(BaseCollection):
             self._clean_history_cache()
             return item            
         
-        try:
-            attendees = vobject_item.vevent.attendee_list #TODO: likely to get error with whole calendars!
-        except AttributeError:
+        if self._is_update(href):
+            self.logger.debug("PUT action to update an existing event.")
+            vobject_item_old = self.get(href).item
+            attendees_old = self._get_attendees(vobject_item_old)
+            if not attendees_old:
+                self.logger.debug("No attendees found in the old version on disk.")
+            else:
+                self.logger.debug("%i attendees found in the old version on disk.", len(attendees_old))
+                users_old = [ self._get_user_from_attendee(family_member) for family_member in self._get_family_members(attendees_old) ]
+                self.logger.debug("Removing all the symlinks for the attendees of the old version (will be added later again if needed).")
+                for user_old in users_old:
+                    dest = self._get_default_calendar_for_user(user_old, href)
+                    self.logger.debug("Path: " + dest)
+                    os.unlink(dest)
+        
+        attendees = self._get_attendees(vobject_item)
+        if not attendees:
             self.logger.debug("No attendees found in %s, continuing with standard storage.", href)
             self._plugin_finished()
             return super().upload(href, vobject_item)
@@ -192,21 +215,21 @@ class Collection(BaseCollection):
                 elif family_member.partstat_param == "NEEDS-ACTION":
                     family_member.partstat_param = "ACCEPTED"
                     self.logger.debug("Set PARTSTAT automatically to ACCEPTED.")
-                    
-                    self.logger.debug("Creating a symbolic link to make event accessible for %s.", user)
-                    src = path_to_filesystem(self._filesystem_path, href)
-                    dest = self._get_default_calendar_for_user(user, href)
-                    self.logger.debug("Source: " + src)
-                    self.logger.debug("Destination: " + dest)
-                    
-                    os.symlink(src, dest)
-                    
-                    real = os.path.realpath(dest.replace("/" + href, "")).replace(self._get_collection_root_folder() + "/", "")
-                    collection = next(self.discover(real))
-                    
-                    # Track the change
-                    collection._update_history_etag(href, item)
-                    collection._clean_history_cache()
+                
+                self.logger.debug("Creating a symbolic link to make event accessible for %s.", user)
+                src = path_to_filesystem(self._filesystem_path, href)
+                dest = self._get_default_calendar_for_user(user, href)
+                self.logger.debug("Source: " + src)
+                self.logger.debug("Destination: " + dest)
+                
+                os.symlink(src, dest)
+                
+                real = os.path.realpath(dest.replace("/" + href, "")).replace(self._get_collection_root_folder() + "/", "")
+                collection = next(self.discover(real))
+                
+                # Track the change
+                collection._update_history_etag(href, item)
+                collection._clean_history_cache()
             except Exception as e:
                 self.logger.error("Plugin encountered an error while trying to auto-accept and/or link for family members.")
                 self.logger.error(e)
